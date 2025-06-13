@@ -1,0 +1,21 @@
+Key Features of a Document Management System
+While each business needs to manage its documents differently, there are key features that every document management system should have:
+
+1. Security features such as customizable access restrictions
+With any DMS, the ability to customize access permissions is an integral part of protecting your data. By controlling access, you also have a better range of options for collaborating and using your DMS. You can set unique permissions for different individuals, departments, teams, and vendor or customer access to particular files.  Without this flexibility, your DMS may not have value beyond a few use cases.
+
+2. Ability to store various file types
+Document management systems need the flexibility to accommodate various file types. If your DMS only supports a small number of file types, you might need more than one DMS, potentially creating more work for your team and duplicating your business information systems. Generally, the more a single system can do, the better — you can use that flexibility to streamline your business processes.
+
+3. Search functions for quick location and access to important files 
+A primary function of a DMS is to improve your use and access to documents. Without the ability to search your files, you may not be able to find the specific documents you need. Be sure to review the default search options of the tool, as different search options may be more beneficial for your particular use cases.
+
+4. Document history for auditing and tracking
+By tracking your document changes and auditing them, you can manage your documents more effectively and ensure that only authorized changes are made to your files. This helps maintain compliance for documents that are subject to internal or regulatory rules, many of which require an audit trail.
+
+5. Version control for documents and backup storage
+Your DMS should provide a historical log of changes. This feature not only allows you to see who has modified the files but also allows you to revert to previous versions. Backup copies should be easily accessible.
+
+6. Ease of use 
+Finally, your your DMS should be user-friendly so that your team can use it effectively. If the system is too complex, there is a risk that it will not be fully adopted by your organization.
+
