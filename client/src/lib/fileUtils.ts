@@ -1,4 +1,8 @@
-export function getFileIcon(mimeType: string): string {
+export function getFileIcon(mimeType: string | null | undefined): string {
+  if (!mimeType) {
+    return 'file-icon-default';
+  }
+  
   if (mimeType.startsWith('image/')) {
     return 'file-icon-img';
   }
@@ -38,11 +42,12 @@ export function getFileExtension(filename: string): string {
   return filename.slice((filename.lastIndexOf(".") - 1 >>> 0) + 2);
 }
 
-export function isImageFile(mimeType: string): boolean {
-  return mimeType.startsWith('image/');
+export function isImageFile(mimeType: string | null | undefined): boolean {
+  return mimeType ? mimeType.startsWith('image/') : false;
 }
 
-export function isDocumentFile(mimeType: string): boolean {
+export function isDocumentFile(mimeType: string | null | undefined): boolean {
+  if (!mimeType) return false;
   const documentTypes = [
     'application/pdf',
     'application/msword',
@@ -56,7 +61,8 @@ export function isDocumentFile(mimeType: string): boolean {
   return documentTypes.includes(mimeType);
 }
 
-export function canPreview(mimeType: string): boolean {
+export function canPreview(mimeType: string | null | undefined): boolean {
+  if (!mimeType) return false;
   return isImageFile(mimeType) || mimeType === 'application/pdf' || mimeType.startsWith('text/');
 }
 

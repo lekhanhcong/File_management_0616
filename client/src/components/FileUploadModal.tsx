@@ -1,16 +1,13 @@
-import { useState, useCallback } from "react";
-import { useDropzone } from "react-dropzone";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
-import { Upload, X, File, CheckCircle } from "lucide-react";
-import { useProjects } from "@/hooks/useFiles";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { X, Upload as UploadIcon, File, CheckCircle, AlertCircle, HardDrive, Info } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { localStorageManager } from "@/lib/localStorage";
+import { formatFileSize } from "@/lib/fileUtils";
 
 interface FileUploadModalProps {
   isOpen: boolean;
@@ -20,251 +17,370 @@ interface FileUploadModalProps {
 interface UploadFile {
   file: File;
   id: string;
-  status: 'pending' | 'uploading' | 'completed' | 'error';
   progress: number;
+  status: 'pending' | 'uploading' | 'success' | 'error' | 'validating';
   error?: string;
+  localStorageId?: string;
+  uploadMode: 'server' | 'local';
 }
 
 export default function FileUploadModal({ isOpen, onClose }: FileUploadModalProps) {
   const [files, setFiles] = useState<UploadFile[]>([]);
-  const [projectId, setProjectId] = useState<string>("");
-  const [description, setDescription] = useState("");
-  const [tags, setTags] = useState("");
-  const { toast } = useToast();
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadMode, setUploadMode] = useState<'server' | 'local'>('server');
+  const [storageInfo, setStorageInfo] = useState(localStorageManager.getStorageInfo());
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
-  const { data: projects = [] } = useProjects();
 
-  const uploadMutation = useMutation({
-    mutationFn: async (uploadData: { file: File; projectId?: string; description?: string; tags?: string[] }) => {
-      const formData = new FormData();
-      formData.append('file', uploadData.file);
-      if (uploadData.projectId) formData.append('projectId', uploadData.projectId);
-      if (uploadData.description) formData.append('description', uploadData.description);
-      if (uploadData.tags) formData.append('tags', JSON.stringify(uploadData.tags));
+  useEffect(() => {
+    if (isOpen) {
+      setStorageInfo(localStorageManager.getStorageInfo());
+    }
+  }, [isOpen]);
 
-      const response = await apiRequest('POST', '/api/files/upload', formData);
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/files'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/files/recent'] });
-      toast({
-        title: "Success",
-        description: "Files uploaded successfully!",
-      });
-    },
-  });
-
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const newFiles: UploadFile[] = acceptedFiles.map(file => ({
-      file,
-      id: Math.random().toString(36).substr(2, 9),
-      status: 'pending',
-      progress: 0,
-    }));
-    setFiles(prev => [...prev, ...newFiles]);
+  const updateStorageInfo = useCallback(() => {
+    setStorageInfo(localStorageManager.getStorageInfo());
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    maxSize: 50 * 1024 * 1024, // 50MB
-    accept: {
-      'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.webp'],
-      'application/pdf': ['.pdf'],
-      'application/msword': ['.doc'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'application/vnd.ms-excel': ['.xls'],
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-      'text/*': ['.txt', '.csv'],
+  const serverUploadMutation = useMutation({
+    mutationFn: async (uploadFile: UploadFile) => {
+      const formData = new FormData();
+      formData.append('file', uploadFile.file);
+      formData.append('projectId', 'default');
+
+      const response = await fetch('/api/files/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Upload failed');
+      }
+
+      return response.json();
     },
+    onSuccess: (data, uploadFile) => {
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id 
+          ? { ...f, status: 'success', progress: 100 }
+          : f
+      ));
+      queryClient.invalidateQueries({ queryKey: ['files'] });
+      queryClient.invalidateQueries({ queryKey: ['recent-files'] });
+    },
+    onError: (error: Error, uploadFile) => {
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id 
+          ? { ...f, status: 'error', error: error.message }
+          : f
+      ));
+    }
   });
+
+  const localUploadMutation = useMutation({
+    mutationFn: async (uploadFile: UploadFile) => {
+      // Simulate progress for local storage
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id ? { ...f, progress: 25 } : f
+      ));
+      
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id ? { ...f, progress: 50 } : f
+      ));
+      
+      const result = await localStorageManager.storeFile(uploadFile.file);
+      
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id ? { ...f, progress: 75 } : f
+      ));
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Local storage failed');
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      return { fileId: result.fileId };
+    },
+    onSuccess: (data, uploadFile) => {
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id 
+          ? { ...f, status: 'success', progress: 100, localStorageId: data.fileId }
+          : f
+      ));
+      updateStorageInfo();
+    },
+    onError: (error: Error, uploadFile) => {
+      setFiles(prev => prev.map(f => 
+        f.id === uploadFile.id 
+          ? { ...f, status: 'error', error: error.message, progress: 0 }
+          : f
+      ));
+    }
+  });
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    addFiles(droppedFiles);
+  }, []);
+
+  const validateAndAddFiles = useCallback(async (newFiles: File[]) => {
+    const uploadFiles: UploadFile[] = [];
+    
+    for (const file of newFiles) {
+      const fileId = Math.random().toString(36).substr(2, 9);
+      const uploadFile: UploadFile = {
+        file,
+        id: fileId,
+        progress: 0,
+        status: 'validating',
+        uploadMode
+      };
+      
+      uploadFiles.push(uploadFile);
+    }
+    
+    setFiles(prev => [...prev, ...uploadFiles]);
+    
+    // Validate files
+    for (const uploadFile of uploadFiles) {
+      try {
+        if (uploadMode === 'local') {
+          const settings = localStorageManager.getSettings();
+          const isValidSize = uploadFile.file.size <= settings.maxFileSize;
+          const isValidType = settings.allowedTypes.includes(uploadFile.file.type);
+          
+          if (!isValidSize || !isValidType) {
+            const error = !isValidSize 
+              ? `File size exceeds ${Math.round(settings.maxFileSize / 1024 / 1024)}MB limit`
+              : `File type ${uploadFile.file.type} is not supported`;
+            
+            setFiles(prev => prev.map(f => 
+              f.id === uploadFile.id 
+                ? { ...f, status: 'error', error }
+                : f
+            ));
+            continue;
+          }
+        }
+        
+        setFiles(prev => prev.map(f => 
+          f.id === uploadFile.id 
+            ? { ...f, status: 'pending' }
+            : f
+        ));
+      } catch (error) {
+        setFiles(prev => prev.map(f => 
+          f.id === uploadFile.id 
+            ? { ...f, status: 'error', error: 'Validation failed' }
+            : f
+        ));
+      }
+    }
+  }, [uploadMode]);
+
+  const addFiles = (newFiles: File[]) => {
+    validateAndAddFiles(newFiles);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      addFiles(Array.from(e.target.files));
+    }
+  };
+
+  const startUpload = async () => {
+    const pendingFiles = files.filter(f => f.status === 'pending');
+    
+    for (const file of pendingFiles) {
+      setFiles(prev => prev.map(f => 
+        f.id === file.id ? { ...f, status: 'uploading' } : f
+      ));
+      
+      if (file.uploadMode === 'local') {
+        localUploadMutation.mutate(file);
+      } else {
+        serverUploadMutation.mutate(file);
+      }
+    }
+  };
 
   const removeFile = (id: string) => {
     setFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  const uploadFiles = async () => {
-    if (files.length === 0) return;
-
-    const tagArray = tags.split(',').map(tag => tag.trim()).filter(Boolean);
-
-    // Update files to uploading status
-    setFiles(prev => prev.map(f => ({ ...f, status: 'uploading' as const })));
-
-    for (const fileInfo of files) {
-      try {
-        await uploadMutation.mutateAsync({
-          file: fileInfo.file,
-          projectId: projectId || undefined,
-          description: description || undefined,
-          tags: tagArray.length > 0 ? tagArray : undefined,
-        });
-
-        setFiles(prev => prev.map(f => 
-          f.id === fileInfo.id ? { ...f, status: 'completed' as const, progress: 100 } : f
-        ));
-      } catch (error) {
-        setFiles(prev => prev.map(f => 
-          f.id === fileInfo.id ? { 
-            ...f, 
-            status: 'error' as const, 
-            error: error instanceof Error ? error.message : 'Upload failed'
-          } : f
-        ));
-      }
-    }
-
-    // Close modal after a short delay if all uploads completed
-    setTimeout(() => {
-      setFiles([]);
-      setProjectId("");
-      setDescription("");
-      setTags("");
-      onClose();
-    }, 1500);
-  };
 
   const handleClose = () => {
     setFiles([]);
-    setProjectId("");
-    setDescription("");
-    setTags("");
     onClose();
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
+  if (!isOpen) return null;
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center">
-            <Upload className="h-5 w-5 mr-2" />
-            Upload Files
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle>Upload Files</DialogTitle>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant={uploadMode === 'server' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setUploadMode('server')}
+              >
+                Server
+              </Button>
+              <Button
+                variant={uploadMode === 'local' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setUploadMode('local')}
+              >
+                Local
+              </Button>
+            </div>
+          </div>
+          {uploadMode === 'local' && (
+            <Alert>
+              <HardDrive className="h-4 w-4" />
+              <AlertDescription>
+                Files will be stored locally in your browser. 
+                Storage used: {Math.round(storageInfo.usedPercentage)}% 
+                ({formatFileSize(storageInfo.used)} / {formatFileSize(50 * 1024 * 1024)})
+              </AlertDescription>
+            </Alert>
+          )}
         </DialogHeader>
-
-        <div className="space-y-6">
+        
+        <div className="flex-1 overflow-y-auto">
           {/* Drop Zone */}
           <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-              isDragActive
-                ? 'border-primary bg-primary/5'
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+              isDragOver 
+                ? 'border-blue-500 bg-blue-50' 
                 : 'border-gray-300 hover:border-gray-400'
             }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
           >
-            <input {...getInputProps()} />
-            <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-            <div className="text-sm text-gray-600 mb-2">
-              <span className="font-medium text-primary cursor-pointer hover:text-primary/80">
-                Click to upload
-              </span>{' '}
-              or drag and drop
-            </div>
-            <p className="text-xs text-gray-500">
-              PNG, JPG, PDF, DOCX up to 50MB
+            <UploadIcon className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+            <p className="text-lg font-medium text-gray-900 mb-2">
+              Drop files here or click to browse
             </p>
+            <p className="text-sm text-gray-500 mb-4">
+              {uploadMode === 'local' 
+                ? `Supports: PDF, DOC, DOCX, XLS, XLSX, TXT, JPG, PNG, GIF (max ${Math.round(localStorageManager.getSettings().maxFileSize / 1024 / 1024)}MB)`
+                : 'Supports: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT, JPG, PNG, GIF (max 50MB)'
+              }
+            </p>
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              variant="outline"
+              className="mx-auto"
+            >
+              Choose Files
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              className="hidden"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif"
+            />
           </div>
 
           {/* File List */}
           {files.length > 0 && (
-            <div className="space-y-2 max-h-40 overflow-y-auto">
-              {files.map((fileInfo) => (
-                <div key={fileInfo.id} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <File className="h-8 w-8 text-gray-500 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {fileInfo.file.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {formatFileSize(fileInfo.file.size)}
-                    </p>
+            <div className="mt-6">
+              <h3 className="text-lg font-medium mb-4">Files to Upload</h3>
+              <div className="space-y-3 max-h-60 overflow-y-auto">
+                {files.map((uploadFile) => (
+                  <div key={uploadFile.id} className="flex items-center space-x-3 p-3 border rounded-lg">
+                    <File className="h-8 w-8 text-gray-400 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {uploadFile.file.name}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {formatFileSize(uploadFile.file.size)}
+                      </p>
+                      {uploadFile.status === 'validating' && (
+                        <div className="flex items-center mt-1">
+                          <Info className="h-3 w-3 text-blue-500 mr-1" />
+                          <span className="text-xs text-blue-600">Validating...</span>
+                        </div>
+                      )}
+                      {uploadFile.status === 'uploading' && (
+                        <Progress value={uploadFile.progress} className="mt-2" />
+                      )}
+                      {uploadFile.status === 'error' && (
+                        <p className="text-sm text-red-500 mt-1">{uploadFile.error}</p>
+                      )}
+                      {uploadFile.status === 'success' && uploadFile.uploadMode === 'local' && (
+                        <div className="flex items-center mt-1">
+                          <Badge variant="secondary" className="text-xs">
+                            Stored Locally
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {uploadFile.status === 'success' && (
+                        <CheckCircle className="h-5 w-5 text-green-500" />
+                      )}
+                      {uploadFile.status === 'error' && (
+                        <AlertCircle className="h-5 w-5 text-red-500" />
+                      )}
+                      {uploadFile.status === 'pending' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeFile(uploadFile.id)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    {fileInfo.status === 'completed' && (
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                    )}
-                    {fileInfo.status === 'error' && (
-                      <div className="text-xs text-red-500">Error</div>
-                    )}
-                    {fileInfo.status === 'uploading' && (
-                      <div className="text-xs text-blue-500">Uploading...</div>
-                    )}
-                    {fileInfo.status === 'pending' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeFile(fileInfo.id)}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
+        </div>
 
-          {/* Form Fields */}
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="project">Project</Label>
-              <Select value={projectId} onValueChange={setProjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a project" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">No project</SelectItem>
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Add a description for these files..."
-                rows={3}
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="tags">Tags</Label>
-              <Input
-                id="tags"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-                placeholder="Add tags separated by commas"
-              />
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end space-x-3">
-            <Button variant="outline" onClick={handleClose}>
-              Cancel
-            </Button>
+        {/* Footer */}
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <Button variant="outline" onClick={handleClose}>
+            {files.some(f => f.status === 'success') ? 'Done' : 'Cancel'}
+          </Button>
+          {files.some(f => f.status === 'pending') && (
             <Button 
-              onClick={uploadFiles} 
-              disabled={files.length === 0 || uploadMutation.isPending}
+              onClick={startUpload}
+              disabled={serverUploadMutation.isPending || localUploadMutation.isPending}
             >
-              {uploadMutation.isPending ? 'Uploading...' : `Upload ${files.length} File${files.length !== 1 ? 's' : ''}`}
+              {(serverUploadMutation.isPending || localUploadMutation.isPending) 
+                ? `Uploading to ${uploadMode}...` 
+                : `Upload to ${uploadMode === 'local' ? 'Local Storage' : 'Server'}`}
             </Button>
-          </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

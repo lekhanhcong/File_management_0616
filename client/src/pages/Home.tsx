@@ -6,6 +6,7 @@ import Header from "@/components/Header";
 import QuickActions from "@/components/QuickActions";
 import RecentFiles from "@/components/RecentFiles";
 import FileTable from "@/components/FileTable";
+import LocalFileManager from "@/components/LocalFileManager";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
 export default function Home() {
@@ -54,31 +55,39 @@ export default function Home() {
           <QuickActions />
           <RecentFiles />
           
-          <section>
-            <div className="bg-white rounded-xl border border-gray-200">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">All files</h2>
-                    <div className="flex items-center mt-1">
-                      <p className="text-sm text-gray-600">Manage and organize your team's documents</p>
-                      {isConnected && (
-                        <div className="ml-2 flex items-center">
-                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                          <span className="ml-1 text-xs text-green-600">Live</span>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <div className="lg:col-span-2">
+              <section>
+                <div className="bg-white rounded-xl border border-gray-200">
+                  <div className="px-6 py-4 border-b border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h2 className="text-lg font-semibold text-gray-900">All files</h2>
+                        <div className="flex items-center mt-1">
+                          <p className="text-sm text-gray-600">Manage and organize your team's documents</p>
+                          {isConnected && (
+                            <div className="ml-2 flex items-center">
+                              <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                              <span className="ml-1 text-xs text-green-600">Live</span>
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </div>
+                      <button className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                        <i className="fas fa-ellipsis-h"></i>
+                      </button>
                     </div>
                   </div>
-                  <button className="text-sm text-gray-500 hover:text-gray-700 transition-colors">
-                    <i className="fas fa-ellipsis-h"></i>
-                  </button>
+                  
+                  <FileTable />
                 </div>
-              </div>
-              
-              <FileTable />
+              </section>
             </div>
-          </section>
+            
+            <div className="lg:col-span-1">
+              <LocalFileManager />
+            </div>
+          </div>
         </div>
       </main>
     </div>

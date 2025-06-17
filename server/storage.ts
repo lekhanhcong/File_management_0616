@@ -1,551 +1,187 @@
-import {
-  users,
-  files,
-  projects,
-  organizations,
-  fileVersions,
-  filePermissions,
-  auditLogs,
-  shareLinks,
-  type User,
-  type UpsertUser,
-  type File,
-  type InsertFile,
-  type FileWithDetails,
-  type Project,
-  type InsertProject,
-  type ProjectWithDetails,
-  type Organization,
-  type InsertOrganization,
-  type FileVersion,
-  type InsertFileVersion,
-  type FilePermission,
-  type InsertFilePermission,
-  type AuditLog,
-  type InsertAuditLog,
-  type ShareLink,
-  type InsertShareLink,
-} from "@shared/schema";
-import { db } from "./db";
-import { eq, desc, and, or, like, ilike, inArray, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import Database from "better-sqlite3";
+import { desc, eq, and, like, or, sql } from "drizzle-orm";
+import * as schema from "../shared/schema.sqlite.js";
 
-export interface IStorage {
-  // User operations (required for Replit Auth)
-  getUser(id: string): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
-  
-  // File operations
-  createFile(file: InsertFile): Promise<File>;
-  getFile(id: string): Promise<FileWithDetails | undefined>;
-  getFiles(options?: {
-    projectId?: string;
-    uploadedBy?: string;
-    limit?: number;
-    offset?: number;
-    search?: string;
-    mimeTypes?: string[];
-  }): Promise<{ files: FileWithDetails[]; total: number }>;
-  updateFile(id: string, updates: Partial<InsertFile>): Promise<File | undefined>;
-  deleteFile(id: string): Promise<boolean>;
-  
-  // File version operations
-  createFileVersion(version: InsertFileVersion): Promise<FileVersion>;
-  getFileVersions(fileId: string): Promise<FileVersion[]>;
-  
-  // Project operations
-  createProject(project: InsertProject): Promise<Project>;
-  getProject(id: string): Promise<ProjectWithDetails | undefined>;
-  getProjects(options?: {
-    createdBy?: string;
-    organizationId?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<{ projects: ProjectWithDetails[]; total: number }>;
-  updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined>;
-  deleteProject(id: string): Promise<boolean>;
-  
-  // Organization operations
-  createOrganization(org: InsertOrganization): Promise<Organization>;
-  getOrganization(id: string): Promise<Organization | undefined>;
-  getOrganizations(): Promise<Organization[]>;
-  
-  // Permission operations
-  createFilePermission(permission: InsertFilePermission): Promise<FilePermission>;
-  getFilePermissions(fileId: string): Promise<FilePermission[]>;
-  getUserFilePermission(fileId: string, userId: string): Promise<FilePermission | undefined>;
-  deleteFilePermission(id: string): Promise<boolean>;
-  
-  // Audit operations
-  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
-  getAuditLogs(options?: {
-    userId?: string;
-    resourceType?: string;
-    resourceId?: string;
-    limit?: number;
-    offset?: number;
-  }): Promise<{ logs: AuditLog[]; total: number }>;
-  
-  // Share link operations
-  createShareLink(shareLink: InsertShareLink): Promise<ShareLink>;
-  getShareLink(token: string): Promise<ShareLink | undefined>;
-  getShareLinksByFile(fileId: string): Promise<ShareLink[]>;
-  updateShareLink(id: string, updates: Partial<InsertShareLink>): Promise<ShareLink | undefined>;
-  deleteShareLink(id: string): Promise<boolean>;
-}
+type File = typeof schema.files.$inferSelect;
+type InsertFile = typeof schema.files.$inferInsert;
+type User = typeof schema.users.$inferSelect;
+type Project = typeof schema.projects.$inferSelect;
 
-export class DatabaseStorage implements IStorage {
-  // User operations
-  async getUser(id: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.id, id));
-    return user;
+export class DatabaseStorage {
+  private db: ReturnType<typeof drizzle>;
+
+  constructor() {
+    const dbPath = process.env.NODE_ENV === "production" ? "prod.db" : "dev.db";
+    const sqlite = new Database(dbPath);
+    this.db = drizzle(sqlite, { schema });
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
-  }
-
-  // File operations
   async createFile(file: InsertFile): Promise<File> {
-    const [newFile] = await db.insert(files).values(file).returning();
-    return newFile;
+    const [insertedFile] = await this.db.insert(schema.files).values(file).returning();
+    return insertedFile;
   }
 
-  async getFile(id: string): Promise<FileWithDetails | undefined> {
-    const [file] = await db
-      .select({
-        id: files.id,
-        name: files.name,
-        originalName: files.originalName,
-        mimeType: files.mimeType,
-        size: files.size,
-        path: files.path,
-        hash: files.hash,
-        projectId: files.projectId,
-        uploadedBy: files.uploadedBy,
-        description: files.description,
-        tags: files.tags,
-        version: files.version,
-        isActive: files.isActive,
-        isOfflineAvailable: files.isOfflineAvailable,
-        createdAt: files.createdAt,
-        updatedAt: files.updatedAt,
-        uploader: {
-          id: users.id,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          profileImageUrl: users.profileImageUrl,
-          role: users.role,
-          createdAt: users.createdAt,
-          updatedAt: users.updatedAt,
-        },
-        project: {
-          id: projects.id,
-          name: projects.name,
-          description: projects.description,
-          organizationId: projects.organizationId,
-          createdBy: projects.createdBy,
-          createdAt: projects.createdAt,
-          updatedAt: projects.updatedAt,
-        },
-      })
-      .from(files)
-      .leftJoin(users, eq(files.uploadedBy, users.id))
-      .leftJoin(projects, eq(files.projectId, projects.id))
-      .where(and(eq(files.id, id), eq(files.isActive, true)));
-
-    return file as FileWithDetails | undefined;
+  async getFile(id: string): Promise<File | null> {
+    const file = await this.db.select().from(schema.files).where(eq(schema.files.id, id)).limit(1);
+    return file[0] || null;
   }
 
-  async getFiles(options: {
-    projectId?: string;
-    uploadedBy?: string;
+  async listFiles(params: {
     limit?: number;
     offset?: number;
     search?: string;
-    mimeTypes?: string[];
-  } = {}): Promise<{ files: FileWithDetails[]; total: number }> {
-    const { projectId, uploadedBy, limit = 20, offset = 0, search, mimeTypes } = options;
+    userId?: string;
+    projectId?: string;
+    mimeType?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  } = {}): Promise<{ files: File[]; total: number }> {
+    const {
+      limit = 20,
+      offset = 0,
+      search,
+      userId,
+      projectId,
+      mimeType,
+      sortOrder = 'desc'
+    } = params;
 
-    let whereClause = and(eq(files.isActive, true));
+    // Build conditions (SQLite uses integers for booleans)
+    const conditions: any[] = [eq(schema.files.isActive, 1)];
     
-    if (projectId) {
-      whereClause = and(whereClause, eq(files.projectId, projectId));
-    }
-    
-    if (uploadedBy) {
-      whereClause = and(whereClause, eq(files.uploadedBy, uploadedBy));
-    }
+    if (userId) conditions.push(eq(schema.files.uploadedBy, userId));
+    if (projectId) conditions.push(eq(schema.files.projectId, projectId));
+    if (mimeType) conditions.push(eq(schema.files.mimeType, mimeType));
     
     if (search) {
-      whereClause = and(
-        whereClause,
+      const searchTerm = `%${search.toLowerCase()}%`;
+      conditions.push(
         or(
-          ilike(files.name, `%${search}%`),
-          ilike(files.originalName, `%${search}%`),
-          ilike(files.description, `%${search}%`)
+          like(sql`LOWER(${schema.files.name})`, searchTerm),
+          like(sql`LOWER(${schema.files.originalName})`, searchTerm)
         )
       );
     }
+
+    // Simplified query building
+    const whereClause = conditions.length === 1 ? conditions[0] : 
+                       conditions.length > 1 ? and(...conditions) : undefined;
     
-    if (mimeTypes && mimeTypes.length > 0) {
-      whereClause = and(whereClause, inArray(files.mimeType, mimeTypes));
-    }
+    // Build files query
+    const baseFilesQuery = this.db.select().from(schema.files);
+    const filesQuery = whereClause ? baseFilesQuery.where(whereClause) : baseFilesQuery;
+    
+    const files = await filesQuery
+      .orderBy(sortOrder === 'desc' ? desc(schema.files.createdAt) : schema.files.createdAt)
+      .limit(limit)
+      .offset(offset);
 
-    const [filesResult, countResult] = await Promise.all([
-      db
-        .select({
-          id: files.id,
-          name: files.name,
-          originalName: files.originalName,
-          mimeType: files.mimeType,
-          size: files.size,
-          path: files.path,
-          hash: files.hash,
-          projectId: files.projectId,
-          uploadedBy: files.uploadedBy,
-          description: files.description,
-          tags: files.tags,
-          version: files.version,
-          isActive: files.isActive,
-          isOfflineAvailable: files.isOfflineAvailable,
-          createdAt: files.createdAt,
-          updatedAt: files.updatedAt,
-          uploader: {
-            id: users.id,
-            email: users.email,
-            firstName: users.firstName,
-            lastName: users.lastName,
-            profileImageUrl: users.profileImageUrl,
-            role: users.role,
-            createdAt: users.createdAt,
-            updatedAt: users.updatedAt,
-          },
-          project: {
-            id: projects.id,
-            name: projects.name,
-            description: projects.description,
-            organizationId: projects.organizationId,
-            createdBy: projects.createdBy,
-            createdAt: projects.createdAt,
-            updatedAt: projects.updatedAt,
-          },
-        })
-        .from(files)
-        .leftJoin(users, eq(files.uploadedBy, users.id))
-        .leftJoin(projects, eq(files.projectId, projects.id))
-        .where(whereClause)
-        .orderBy(desc(files.updatedAt))
-        .limit(limit)
-        .offset(offset),
-      
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(files)
-        .where(whereClause),
-    ]);
+    // Get total count with a separate simpler query
+    const baseCountQuery = this.db.select({ count: sql<number>`COUNT(*)`.as('count') }).from(schema.files);
+    const countQuery = whereClause ? baseCountQuery.where(whereClause) : baseCountQuery;
+    const countResult = await countQuery;
+    const total = countResult[0]?.count || 0;
 
-    return {
-      files: filesResult as FileWithDetails[],
-      total: countResult[0]?.count || 0,
-    };
+    return { files, total };
   }
 
-  async updateFile(id: string, updates: Partial<InsertFile>): Promise<File | undefined> {
-    const [file] = await db
-      .update(files)
+  async updateFile(id: string, updates: Partial<File>): Promise<File | null> {
+    const [updatedFile] = await this.db
+      .update(schema.files)
       .set({ ...updates, updatedAt: new Date() })
-      .where(eq(files.id, id))
+      .where(eq(schema.files.id, id))
       .returning();
-    return file;
+    
+    return updatedFile || null;
   }
 
   async deleteFile(id: string): Promise<boolean> {
-    const [file] = await db
-      .update(files)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(eq(files.id, id))
-      .returning();
-    return !!file;
-  }
-
-  // File version operations
-  async createFileVersion(version: InsertFileVersion): Promise<FileVersion> {
-    const [newVersion] = await db.insert(fileVersions).values(version).returning();
-    return newVersion;
-  }
-
-  async getFileVersions(fileId: string): Promise<FileVersion[]> {
-    return await db
-      .select()
-      .from(fileVersions)
-      .where(eq(fileVersions.fileId, fileId))
-      .orderBy(desc(fileVersions.version));
-  }
-
-  // Project operations
-  async createProject(project: InsertProject): Promise<Project> {
-    const [newProject] = await db.insert(projects).values(project).returning();
-    return newProject;
-  }
-
-  async getProject(id: string): Promise<ProjectWithDetails | undefined> {
-    const [project] = await db
-      .select({
-        id: projects.id,
-        name: projects.name,
-        description: projects.description,
-        organizationId: projects.organizationId,
-        createdBy: projects.createdBy,
-        createdAt: projects.createdAt,
-        updatedAt: projects.updatedAt,
-        creator: {
-          id: users.id,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          profileImageUrl: users.profileImageUrl,
-          role: users.role,
-          createdAt: users.createdAt,
-          updatedAt: users.updatedAt,
-        },
-        organization: {
-          id: organizations.id,
-          name: organizations.name,
-          slug: organizations.slug,
-          createdAt: organizations.createdAt,
-          updatedAt: organizations.updatedAt,
-        },
-      })
-      .from(projects)
-      .leftJoin(users, eq(projects.createdBy, users.id))
-      .leftJoin(organizations, eq(projects.organizationId, organizations.id))
-      .where(eq(projects.id, id));
-
-    return project as ProjectWithDetails | undefined;
-  }
-
-  async getProjects(options: {
-    createdBy?: string;
-    organizationId?: string;
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<{ projects: ProjectWithDetails[]; total: number }> {
-    const { createdBy, organizationId, limit = 20, offset = 0 } = options;
-
-    let whereClause = sql`1=1`;
+    const result = await this.db
+      .update(schema.files)
+      .set({ isActive: 0, updatedAt: new Date() })
+      .where(eq(schema.files.id, id));
     
-    if (createdBy) {
-      whereClause = and(whereClause, eq(projects.createdBy, createdBy));
-    }
-    
-    if (organizationId) {
-      whereClause = and(whereClause, eq(projects.organizationId, organizationId));
-    }
-
-    const [projectsResult, countResult] = await Promise.all([
-      db
-        .select({
-          id: projects.id,
-          name: projects.name,
-          description: projects.description,
-          organizationId: projects.organizationId,
-          createdBy: projects.createdBy,
-          createdAt: projects.createdAt,
-          updatedAt: projects.updatedAt,
-          creator: {
-            id: users.id,
-            email: users.email,
-            firstName: users.firstName,
-            lastName: users.lastName,
-            profileImageUrl: users.profileImageUrl,
-            role: users.role,
-            createdAt: users.createdAt,
-            updatedAt: users.updatedAt,
-          },
-          organization: {
-            id: organizations.id,
-            name: organizations.name,
-            slug: organizations.slug,
-            createdAt: organizations.createdAt,
-            updatedAt: organizations.updatedAt,
-          },
-        })
-        .from(projects)
-        .leftJoin(users, eq(projects.createdBy, users.id))
-        .leftJoin(organizations, eq(projects.organizationId, organizations.id))
-        .where(whereClause)
-        .orderBy(desc(projects.updatedAt))
-        .limit(limit)
-        .offset(offset),
-      
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(projects)
-        .where(whereClause),
-    ]);
-
-    return {
-      projects: projectsResult as ProjectWithDetails[],
-      total: countResult[0]?.count || 0,
-    };
+    return result.changes > 0;
   }
 
-  async updateProject(id: string, updates: Partial<InsertProject>): Promise<Project | undefined> {
-    const [project] = await db
-      .update(projects)
-      .set({ ...updates, updatedAt: new Date() })
-      .where(eq(projects.id, id))
-      .returning();
-    return project;
+  // User methods
+  async createUser(user: { id: string; email: string; firstName?: string; lastName?: string }): Promise<User> {
+    const [insertedUser] = await this.db.insert(schema.users).values(user).returning();
+    return insertedUser;
+  }
+
+  async getUser(id: string): Promise<User | null> {
+    const user = await this.db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+    return user[0] || null;
+  }
+
+  async getUserByEmail(email: string): Promise<User | null> {
+    const user = await this.db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
+    return user[0] || null;
+  }
+
+  // Project methods
+  async createProject(project: { id: string; name: string; description?: string; createdBy: string }): Promise<Project> {
+    const [insertedProject] = await this.db.insert(schema.projects).values(project).returning();
+    return insertedProject;
+  }
+
+  async getProject(id: string): Promise<Project | null> {
+    const project = await this.db.select().from(schema.projects).where(eq(schema.projects.id, id)).limit(1);
+    return project[0] || null;
+  }
+
+  async listProjects(createdBy: string): Promise<Project[]> {
+    return await this.db.select().from(schema.projects).where(eq(schema.projects.createdBy, createdBy));
+  }
+
+  // Alias for compatibility
+  async getProjects(createdBy: string): Promise<Project[]> {
+    return this.listProjects(createdBy);
   }
 
   async deleteProject(id: string): Promise<boolean> {
-    const [project] = await db.delete(projects).where(eq(projects.id, id)).returning();
-    return !!project;
+    const result = await this.db.delete(schema.projects).where(eq(schema.projects.id, id));
+    return result.changes > 0;
   }
 
-  // Organization operations
-  async createOrganization(org: InsertOrganization): Promise<Organization> {
-    const [newOrg] = await db.insert(organizations).values(org).returning();
-    return newOrg;
+  // Alias for compatibility with routes
+  async getFiles(params: any) {
+    return this.listFiles(params);
   }
 
-  async getOrganization(id: string): Promise<Organization | undefined> {
-    const [org] = await db.select().from(organizations).where(eq(organizations.id, id));
-    return org;
-  }
-
-  async getOrganizations(): Promise<Organization[]> {
-    return await db.select().from(organizations).orderBy(organizations.name);
-  }
-
-  // Permission operations
-  async createFilePermission(permission: InsertFilePermission): Promise<FilePermission> {
-    const [newPermission] = await db.insert(filePermissions).values(permission).returning();
-    return newPermission;
-  }
-
-  async getFilePermissions(fileId: string): Promise<FilePermission[]> {
-    return await db
-      .select()
-      .from(filePermissions)
-      .where(eq(filePermissions.fileId, fileId));
-  }
-
-  async getUserFilePermission(fileId: string, userId: string): Promise<FilePermission | undefined> {
-    const [permission] = await db
-      .select()
-      .from(filePermissions)
-      .where(and(eq(filePermissions.fileId, fileId), eq(filePermissions.userId, userId)));
-    return permission;
-  }
-
-  async deleteFilePermission(id: string): Promise<boolean> {
-    const [permission] = await db.delete(filePermissions).where(eq(filePermissions.id, id)).returning();
-    return !!permission;
-  }
-
-  // Audit operations
-  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
-    const [newLog] = await db.insert(auditLogs).values(log).returning();
-    return newLog;
-  }
-
-  async getAuditLogs(options: {
-    userId?: string;
-    resourceType?: string;
-    resourceId?: string;
-    limit?: number;
-    offset?: number;
-  } = {}): Promise<{ logs: AuditLog[]; total: number }> {
-    const { userId, resourceType, resourceId, limit = 50, offset = 0 } = options;
-
-    let whereClause = sql`1=1`;
-    
-    if (userId) {
-      whereClause = and(whereClause, eq(auditLogs.userId, userId));
+  // Placeholder methods for missing functionality
+  async upsertUser(userData: any): Promise<User> {
+    const existingUser = await this.getUserByEmail(userData.email);
+    if (existingUser) {
+      return existingUser;
     }
-    
-    if (resourceType) {
-      whereClause = and(whereClause, eq(auditLogs.resourceType, resourceType));
+    return this.createUser(userData);
+  }
+
+  async createAuditLog(logData: any): Promise<any> {
+    // Placeholder - audit logs not implemented in this schema
+    console.log('Audit log:', logData);
+    return { id: Date.now().toString() };
+  }
+
+  async getAuditLogs(params: any): Promise<any[]> {
+    // Placeholder - audit logs not implemented in this schema
+    return [];
+  }
+
+  // Health check
+  async healthCheck(): Promise<boolean> {
+    try {
+      await this.db.select().from(schema.files).limit(1);
+      return true;
+    } catch (error) {
+      console.error('Database health check failed:', error);
+      return false;
     }
-    
-    if (resourceId) {
-      whereClause = and(whereClause, eq(auditLogs.resourceId, resourceId));
-    }
-
-    const [logsResult, countResult] = await Promise.all([
-      db
-        .select()
-        .from(auditLogs)
-        .where(whereClause)
-        .orderBy(desc(auditLogs.createdAt))
-        .limit(limit)
-        .offset(offset),
-      
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(auditLogs)
-        .where(whereClause),
-    ]);
-
-    return {
-      logs: logsResult,
-      total: countResult[0]?.count || 0,
-    };
-  }
-
-  // Share link operations
-  async createShareLink(shareLink: InsertShareLink): Promise<ShareLink> {
-    const [newLink] = await db.insert(shareLinks).values(shareLink).returning();
-    return newLink;
-  }
-
-  async getShareLink(token: string): Promise<ShareLink | undefined> {
-    const [link] = await db
-      .select()
-      .from(shareLinks)
-      .where(and(eq(shareLinks.token, token), eq(shareLinks.isActive, true)));
-    return link;
-  }
-
-  async getShareLinksByFile(fileId: string): Promise<ShareLink[]> {
-    return await db
-      .select()
-      .from(shareLinks)
-      .where(and(eq(shareLinks.fileId, fileId), eq(shareLinks.isActive, true)))
-      .orderBy(desc(shareLinks.createdAt));
-  }
-
-  async updateShareLink(id: string, updates: Partial<InsertShareLink>): Promise<ShareLink | undefined> {
-    const [link] = await db
-      .update(shareLinks)
-      .set(updates)
-      .where(eq(shareLinks.id, id))
-      .returning();
-    return link;
-  }
-
-  async deleteShareLink(id: string): Promise<boolean> {
-    const [link] = await db
-      .update(shareLinks)
-      .set({ isActive: false })
-      .where(eq(shareLinks.id, id))
-      .returning();
-    return !!link;
   }
 }
 
+// Export singleton instance
 export const storage = new DatabaseStorage();

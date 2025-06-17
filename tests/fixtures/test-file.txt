@@ -1,0 +1,5 @@
+This is a test file for upload testing.
+It contains sample content to verify file upload functionality.
+File size: Small (under 1KB)
+Type: Plain text
+Encoding: UTF-8

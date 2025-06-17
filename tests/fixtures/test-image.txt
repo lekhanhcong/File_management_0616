@@ -1,0 +1,1 @@
+Mock image file content for testing image uploads.
