@@ -7,13 +7,20 @@ import { useAuth } from "@/hooks/useAuth";
 import Home from "@/pages/Home";
 import Landing from "@/pages/Landing";
 import NotFound from "@/pages/not-found";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { NotificationProvider } from "@/components/NotificationProvider";
+import { PageLoading } from "@/components/LoadingSpinner";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
 
+  if (isLoading) {
+    return <PageLoading message="Initializing application..." />;
+  }
+
   return (
     <Switch>
-      {isLoading || !isAuthenticated ? (
+      {!isAuthenticated ? (
         <Route path="/" component={Landing} />
       ) : (
         <>
@@ -27,12 +34,16 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <NotificationProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </NotificationProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

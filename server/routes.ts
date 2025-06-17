@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-import { insertFileSchema, insertProjectSchema, insertAuditLogSchema } from "@shared/schema";
+import { insertProjectSchema, insertFileSchema, insertAuditLogSchema } from "../shared/validation";
 import { z } from "zod";
 
 // Configure multer for file uploads
@@ -103,7 +103,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create file record
+      const fileId = crypto.randomUUID();
+      const now = new Date();
+      
       const newFile = await storage.createFile({
+        id: fileId,
         name: file.originalname,
         originalName: file.originalname,
         mimeType: file.mimetype,
@@ -113,7 +117,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         projectId: projectId || null,
         uploadedBy: userId,
         description: description || null,
-        tags: parsedTags,
+        tags: JSON.stringify(parsedTags),
+        version: 1,
+        isActive: 1,
+        isOfflineAvailable: 0,
+        createdAt: now,
+        updatedAt: now,
       });
 
       // Create audit log
@@ -162,6 +171,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Recent files endpoint - must come before /:id route
+  app.get('/api/files/recent', isAuthenticated, async (req: any, res) => {
+    try {
+      const result = await storage.getFiles({
+        limit: 6,
+        offset: 0,
+      });
+
+      res.json(result.files);
+    } catch (error) {
+      console.error("Error fetching recent files:", error);
+      res.status(500).json({ message: "Failed to fetch recent files" });
+    }
+  });
+
   app.get('/api/files/:id', isAuthenticated, async (req: any, res) => {
     try {
       const file = await storage.getFile(req.params.id);
@@ -184,6 +208,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "File not found" });
       }
 
+      // Check if file path exists
+      if (!file.path) {
+        return res.status(404).json({ message: "File path not found" });
+      }
+
       // Check if file exists
       try {
         await fs.access(file.path);
@@ -195,8 +224,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await createAuditLog('file_download', 'file', file.id, userId, req);
 
       // Set headers for download
-      res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
-      res.setHeader('Content-Type', file.mimeType);
+      res.setHeader('Content-Disposition', `attachment; filename="${file.originalName || file.name}"`);
+      res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
       
       // Stream file
       const fileBuffer = await fs.readFile(file.path);
@@ -267,7 +296,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdBy: userId,
       });
 
-      const project = await storage.createProject(validation);
+      // Ensure required fields are present
+      const projectData = {
+        id: validation.id || `proj_${Date.now()}`,
+        name: validation.name,
+        description: validation.description,
+        createdBy: userId,
+      };
+
+      const project = await storage.createProject(projectData);
 
       // Create audit log
       await createAuditLog('project_create', 'project', project.id, userId, req, {
@@ -294,17 +331,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
       
-      const result = await storage.getProjects({
-        limit: parseInt(limit),
-        offset,
-        organizationId: organizationId as string,
-      });
+      // For now, just get all projects for the user
+      const userId = req.user.claims.sub;
+      const projects = await storage.getProjects(userId);
+
+      // Simple pagination
+      const total = projects.length;
+      const startIndex = offset;
+      const endIndex = offset + parseInt(limit);
+      const paginatedProjects = projects.slice(startIndex, endIndex);
 
       res.json({
-        projects: result.projects,
-        total: result.total,
+        projects: paginatedProjects,
+        total: total,
         page: parseInt(page),
-        totalPages: Math.ceil(result.total / parseInt(limit)),
+        totalPages: Math.ceil(total / parseInt(limit)),
       });
     } catch (error) {
       console.error("Error fetching projects:", error);
@@ -343,7 +384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const offset = (parseInt(page) - 1) * parseInt(limit);
       
-      const result = await storage.getAuditLogs({
+      const logs = await storage.getAuditLogs({
         limit: parseInt(limit),
         offset,
         userId: userId as string,
@@ -352,29 +393,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.json({
-        logs: result.logs,
-        total: result.total,
+        logs: logs,
+        total: logs.length,
         page: parseInt(page),
-        totalPages: Math.ceil(result.total / parseInt(limit)),
+        totalPages: Math.ceil(logs.length / parseInt(limit)),
       });
     } catch (error) {
       console.error("Error fetching audit logs:", error);
       res.status(500).json({ message: "Failed to fetch audit logs" });
-    }
-  });
-
-  // Recent files endpoint
-  app.get('/api/files/recent', isAuthenticated, async (req: any, res) => {
-    try {
-      const result = await storage.getFiles({
-        limit: 6,
-        offset: 0,
-      });
-
-      res.json(result.files);
-    } catch (error) {
-      console.error("Error fetching recent files:", error);
-      res.status(500).json({ message: "Failed to fetch recent files" });
     }
   });
 

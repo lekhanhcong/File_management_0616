@@ -13,6 +13,13 @@ import { isUnauthorizedError } from "@/lib/authUtils";
 import { Search, Filter, MoreHorizontal, Download, Edit, Share, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import type { FileWithDetails } from "@shared/schema";
 
+interface FileResponse {
+  files: FileWithDetails[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+}
+
 const FILE_TYPES = [
   { value: "all", label: "View all" },
   { value: "application/pdf", label: "PDFs" },
@@ -29,8 +36,23 @@ export default function FileTable() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error } = useQuery<FileResponse>({
     queryKey: ['/api/files', { page: currentPage, search: searchQuery, mimeTypes: selectedType !== "all" ? selectedType : undefined }],
+    queryFn: async (): Promise<FileResponse> => {
+      const searchParams = new URLSearchParams();
+      searchParams.append('page', currentPage.toString());
+      searchParams.append('limit', '20');
+      if (searchQuery) searchParams.append('search', searchQuery);
+      if (selectedType !== "all") searchParams.append('mimeTypes', selectedType);
+      
+      const response = await fetch(`/api/files?${searchParams}`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch files');
+      }
+      return response.json();
+    },
     retry: false,
   });
 
@@ -116,17 +138,18 @@ export default function FileTable() {
     }
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
+  const formatFileSize = (bytes: number | null | undefined) => {
+    if (!bytes || bytes === 0 || isNaN(bytes)) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'Unknown';
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (date: string | Date | null) => {
+    if (!date) return 'Unknown';
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    return dateObj.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -196,7 +219,7 @@ export default function FileTable() {
                 <TableHead>
                   <div className="flex items-center space-x-3">
                     <Checkbox
-                      checked={selectedFiles.length === data?.files?.length}
+                      checked={data?.files ? selectedFiles.length === data.files.length : false}
                       onCheckedChange={toggleAllFiles}
                     />
                     <span>File name</span>
@@ -226,10 +249,10 @@ export default function FileTable() {
                       </div>
                       <div>
                         <div className="text-sm font-medium text-gray-900">
-                          {file.name}
+                          {file.name || file.originalName || 'Unknown File'}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {file.mimeType.split('/')[1]?.toUpperCase() || 'FILE'}
+                          {file.mimeType?.split('/')[1]?.toUpperCase() || 'FILE'}
                         </div>
                       </div>
                     </div>
@@ -257,7 +280,7 @@ export default function FileTable() {
                     {formatDate(file.updatedAt)}
                   </TableCell>
                   <TableCell className="text-sm text-gray-500">
-                    {formatFileSize(file.size)}
+                    {formatFileSize(file.size || 0)}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center space-x-2">
@@ -315,10 +338,10 @@ export default function FileTable() {
               </span>{' '}
               to{' '}
               <span className="font-medium">
-                {Math.min(currentPage * 20, data.total)}
+                {Math.min(currentPage * 20, data?.total || 0)}
               </span>{' '}
               of{' '}
-              <span className="font-medium">{data.total}</span> files
+              <span className="font-medium">{data?.total || 0}</span> files
             </div>
             <div className="flex items-center space-x-2">
               <Button
@@ -331,13 +354,13 @@ export default function FileTable() {
                 Previous
               </Button>
               <span className="text-sm font-medium">
-                Page {currentPage} of {data.totalPages}
+                Page {currentPage} of {data?.totalPages || 1}
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCurrentPage(prev => Math.min(data.totalPages, prev + 1))}
-                disabled={currentPage === data.totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(data?.totalPages || 1, prev + 1))}
+                disabled={currentPage === (data?.totalPages || 1)}
               >
                 Next
                 <ChevronRight className="h-4 w-4 ml-1" />

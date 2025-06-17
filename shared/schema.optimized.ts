@@ -1,3 +1,6 @@
+// Optimized database schema with performance indexes
+// Enhanced schema based on performance audit
+
 import {
   pgTable,
   text,
@@ -9,24 +12,14 @@ import {
   boolean,
   uuid,
   bigint,
+  uniqueIndex,
+  serial,
 } from "drizzle-orm/pg-core";
-import { sqliteTable, text as sqliteText, integer as sqliteInteger } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Session storage table (required for Replit Auth)
-export const sessions = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)],
-);
-
-// User storage table (required for Replit Auth)
+// Enhanced users table with performance indexes
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().notNull(),
   email: varchar("email").unique(),
@@ -34,31 +27,49 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   role: varchar("role", { enum: ["admin", "manager", "user"] }).default("user").notNull(),
+  isActive: boolean("is_active").default(true),
+  lastLoginAt: timestamp("last_login_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_users_email").on(table.email),
+  index("idx_users_role").on(table.role),
+  index("idx_users_active").on(table.isActive),
+  index("idx_users_created_at").on(table.createdAt),
+]);
 
-// Organizations/Teams
+// Enhanced organizations table
 export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
+  isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("idx_organizations_slug").on(table.slug),
+  index("idx_organizations_active").on(table.isActive),
+]);
 
-// Projects
+// Enhanced projects table with better indexing
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   organizationId: uuid("organization_id").references(() => organizations.id),
   createdBy: varchar("created_by").references(() => users.id).notNull(),
+  isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_projects_org_id").on(table.organizationId),
+  index("idx_projects_created_by").on(table.createdBy),
+  index("idx_projects_active").on(table.isActive),
+  index("idx_projects_created_at").on(table.createdAt),
+  index("idx_projects_org_active").on(table.organizationId, table.isActive),
+]);
 
-// Files
+// Optimized files table with comprehensive indexing
 export const files = pgTable("files", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -74,11 +85,37 @@ export const files = pgTable("files", {
   version: integer("version").default(1),
   isActive: boolean("is_active").default(true),
   isOfflineAvailable: boolean("is_offline_available").default(false),
+  downloadCount: integer("download_count").default(0),
+  lastAccessedAt: timestamp("last_accessed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  // Primary search indexes
+  index("idx_files_uploaded_by").on(table.uploadedBy),
+  index("idx_files_project_id").on(table.projectId),
+  index("idx_files_mime_type").on(table.mimeType),
+  index("idx_files_is_active").on(table.isActive),
+  
+  // Composite indexes for common queries
+  index("idx_files_user_active").on(table.uploadedBy, table.isActive),
+  index("idx_files_project_active").on(table.projectId, table.isActive),
+  index("idx_files_created_at").on(table.createdAt),
+  index("idx_files_updated_at").on(table.updatedAt),
+  
+  // Search optimization indexes
+  index("idx_files_name_search").on(table.name),
+  index("idx_files_original_name_search").on(table.originalName),
+  
+  // Performance indexes
+  index("idx_files_size").on(table.size),
+  index("idx_files_download_count").on(table.downloadCount),
+  index("idx_files_hash").on(table.hash),
+  
+  // Full-text search index (PostgreSQL specific)
+  // index("idx_files_fulltext").using("gin", sql`(to_tsvector('english', name || ' ' || coalesce(description, '')))`),
+]);
 
-// File versions for version control
+// Enhanced file versions with indexing
 export const fileVersions = pgTable("file_versions", {
   id: uuid("id").primaryKey().defaultRandom(),
   fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }).notNull(),
@@ -88,19 +125,34 @@ export const fileVersions = pgTable("file_versions", {
   hash: varchar("hash", { length: 64 }),
   uploadedBy: varchar("uploaded_by").references(() => users.id).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_file_versions_file_id").on(table.fileId),
+  index("idx_file_versions_uploaded_by").on(table.uploadedBy),
+  index("idx_file_versions_version").on(table.version),
+  index("idx_file_versions_created_at").on(table.createdAt),
+  uniqueIndex("idx_file_versions_unique").on(table.fileId, table.version),
+]);
 
-// File permissions
+// Enhanced file permissions with indexing
 export const filePermissions = pgTable("file_permissions", {
   id: uuid("id").primaryKey().defaultRandom(),
   fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }).notNull(),
   userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   permission: varchar("permission", { enum: ["read", "write", "admin"] }).notNull(),
   grantedBy: varchar("granted_by").references(() => users.id).notNull(),
+  expiresAt: timestamp("expires_at"),
+  isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_file_permissions_file_id").on(table.fileId),
+  index("idx_file_permissions_user_id").on(table.userId),
+  index("idx_file_permissions_granted_by").on(table.grantedBy),
+  index("idx_file_permissions_active").on(table.isActive),
+  index("idx_file_permissions_expires_at").on(table.expiresAt),
+  uniqueIndex("idx_file_permissions_unique").on(table.fileId, table.userId),
+]);
 
-// Audit logs
+// Enhanced audit logs with partitioning-ready structure
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   action: varchar("action", { length: 100 }).notNull(),
@@ -110,10 +162,19 @@ export const auditLogs = pgTable("audit_logs", {
   ipAddress: varchar("ip_address", { length: 45 }),
   userAgent: text("user_agent"),
   details: jsonb("details"),
+  severity: varchar("severity", { enum: ["low", "medium", "high", "critical"] }).default("low"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_audit_logs_user_id").on(table.userId),
+  index("idx_audit_logs_action").on(table.action),
+  index("idx_audit_logs_resource_type").on(table.resourceType),
+  index("idx_audit_logs_resource_id").on(table.resourceId),
+  index("idx_audit_logs_created_at").on(table.createdAt),
+  index("idx_audit_logs_severity").on(table.severity),
+  index("idx_audit_logs_ip_address").on(table.ipAddress),
+]);
 
-// Share links
+// Enhanced share links with better indexing
 export const shareLinks = pgTable("share_links", {
   id: uuid("id").primaryKey().defaultRandom(),
   token: varchar("token", { length: 255 }).notNull().unique(),
@@ -124,16 +185,56 @@ export const shareLinks = pgTable("share_links", {
   downloadCount: integer("download_count").default(0),
   maxDownloads: integer("max_downloads"),
   password: varchar("password"),
+  lastAccessedAt: timestamp("last_accessed_at"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("idx_share_links_token").on(table.token),
+  index("idx_share_links_file_id").on(table.fileId),
+  index("idx_share_links_created_by").on(table.createdBy),
+  index("idx_share_links_expires_at").on(table.expiresAt),
+  index("idx_share_links_active").on(table.isActive),
+  index("idx_share_links_created_at").on(table.createdAt),
+]);
 
-// Relations
+// New table for caching frequently accessed data
+export const queryCache = pgTable("query_cache", {
+  id: serial("id").primaryKey(),
+  cacheKey: varchar("cache_key", { length: 255 }).notNull().unique(),
+  data: jsonb("data").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_query_cache_key").on(table.cacheKey),
+  index("idx_query_cache_expires_at").on(table.expiresAt),
+]);
+
+// New table for tracking user sessions and activity
+export const userSessions = pgTable("user_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  sessionToken: varchar("session_token", { length: 255 }).notNull().unique(),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  expiresAt: timestamp("expires_at").notNull(),
+  lastActivityAt: timestamp("last_activity_at").defaultNow(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_user_sessions_token").on(table.sessionToken),
+  index("idx_user_sessions_user_id").on(table.userId),
+  index("idx_user_sessions_expires_at").on(table.expiresAt),
+  index("idx_user_sessions_active").on(table.isActive),
+  index("idx_user_sessions_last_activity").on(table.lastActivityAt),
+]);
+
+// Keep all existing relations
 export const usersRelations = relations(users, ({ many }) => ({
   files: many(files),
   projects: many(projects),
   auditLogs: many(auditLogs),
   filePermissions: many(filePermissions),
   shareLinks: many(shareLinks),
+  sessions: many(userSessions),
 }));
 
 export const organizationsRelations = relations(organizations, ({ many }) => ({
@@ -210,46 +311,50 @@ export const shareLinksRelations = relations(shareLinks, ({ one }) => ({
   }),
 }));
 
-// Insert schemas
-export const insertOrganizationSchema = createInsertSchema(organizations).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const userSessionsRelations = relations(userSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [userSessions.userId],
+    references: [users.id],
+  }),
+}));
 
-export const insertProjectSchema = createInsertSchema(projects).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+// Enhanced insert schemas with validation
+export const insertOrganizationSchema = createInsertSchema(organizations)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    name: z.string().min(1).max(255),
+    slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/),
+  });
 
-export const insertFileSchema = createInsertSchema(files).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const insertProjectSchema = createInsertSchema(projects)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    name: z.string().min(1).max(255),
+    description: z.string().max(1000).optional(),
+  });
 
-export const insertFileVersionSchema = createInsertSchema(fileVersions).omit({
-  id: true,
-  createdAt: true,
-});
+export const insertFileSchema = createInsertSchema(files)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  })
+  .extend({
+    name: z.string().min(1).max(255),
+    originalName: z.string().min(1).max(255),
+    size: z.number().min(0).max(100 * 1024 * 1024), // 100MB max
+    tags: z.array(z.string()).max(20).optional(),
+  });
 
-export const insertFilePermissionSchema = createInsertSchema(filePermissions).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertShareLinkSchema = createInsertSchema(shareLinks).omit({
-  id: true,
-  createdAt: true,
-});
-
-// Types
+// Export all types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 export type Organization = typeof organizations.$inferSelect;
@@ -259,24 +364,25 @@ export type InsertProject = z.infer<typeof insertProjectSchema>;
 export type File = typeof files.$inferSelect;
 export type InsertFile = z.infer<typeof insertFileSchema>;
 export type FileVersion = typeof fileVersions.$inferSelect;
-export type InsertFileVersion = z.infer<typeof insertFileVersionSchema>;
 export type FilePermission = typeof filePermissions.$inferSelect;
-export type InsertFilePermission = z.infer<typeof insertFilePermissionSchema>;
 export type AuditLog = typeof auditLogs.$inferSelect;
-export type InsertAuditLog = z.infer<typeof insertAuditLogSchema>;
 export type ShareLink = typeof shareLinks.$inferSelect;
-export type InsertShareLink = z.infer<typeof insertShareLinkSchema>;
+export type UserSession = typeof userSessions.$inferSelect;
 
-// Enhanced types with relations
+// Enhanced types with relations and performance metadata
 export type FileWithDetails = File & {
   uploader: User;
   project?: Project;
   permissions?: FilePermission[];
   versions?: FileVersion[];
+  _cached?: boolean;
+  _loadTime?: number;
 };
 
 export type ProjectWithDetails = Project & {
   creator: User;
   organization?: Organization;
   files?: File[];
+  _fileCount?: number;
+  _totalSize?: number;
 };

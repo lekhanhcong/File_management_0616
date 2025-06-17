@@ -1,51 +1,28 @@
+import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import * as schema from "../shared/schema.sqlite";
+import { requestLogger } from "./middleware/logging";
+import { errorHandler, notFound } from "./middleware/errorHandler";
+import apiRoutes from "./routes/api";
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+// Enhanced logging middleware
+app.use(requestLogger);
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
-  });
-
-  next();
-});
+// Additional API routes
+app.use('/api', apiRoutes);
 
 (async () => {
   const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
+  // Enhanced error handling
+  app.use(notFound);
+  app.use(errorHandler);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -59,12 +36,12 @@ app.use((req, res, next) => {
   // ALWAYS serve the app on port 5000
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const host = "localhost";
+  server.listen(port, host, () => {
+    log(`Serving on http://localhost:${port}`);
+  });
+  server.on('error', (err) => {
+    console.error('Server listen error:', err);
   });
 })();

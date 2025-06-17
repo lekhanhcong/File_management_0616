@@ -3,15 +3,23 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { getFileIcon } from "@/lib/fileUtils";
 import type { FileWithDetails } from "@shared/schema";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
-export default function RecentFiles() {
+function RecentFilesContent() {
   const { data: recentFiles, isLoading } = useQuery({
-    queryKey: ['/api/files/recent'],
+    queryKey: ['recent-files'],
+    queryFn: async () => {
+      const response = await fetch('/api/files/recent');
+      if (!response.ok) {
+        throw new Error('Failed to fetch recent files');
+      }
+      return response.json();
+    },
     retry: false,
   });
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
+  const formatFileSize = (bytes: number | null | undefined) => {
+    if (!bytes || bytes === 0 || isNaN(bytes)) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -81,10 +89,10 @@ export default function RecentFiles() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-medium text-gray-900 truncate">
-                    {file.name}
+                    {file.name || file.originalName || 'Unknown File'}
                   </h3>
                   <p className="text-xs text-gray-500 mt-1">
-                    {formatFileSize(file.size)} • {file.mimeType.split('/')[1]?.toUpperCase()}
+                    {formatFileSize(file.size || 0)} • {file.mimeType?.split('/')[1]?.toUpperCase() || 'FILE'}
                   </p>
                   <div className="flex items-center mt-2">
                     {file.uploader?.profileImageUrl && (
@@ -105,5 +113,25 @@ export default function RecentFiles() {
         ))}
       </div>
     </section>
+  );
+}
+
+export default function RecentFiles() {
+  return (
+    <ErrorBoundary 
+      fallback={
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Recently modified</h2>
+          </div>
+          <div className="text-center py-8 text-gray-500">
+            <p>Unable to load recent files</p>
+            <p className="text-sm">Please try refreshing the page</p>
+          </div>
+        </section>
+      }
+    >
+      <RecentFilesContent />
+    </ErrorBoundary>
   );
 }
