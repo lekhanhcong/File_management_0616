@@ -416,7 +416,7 @@ export default function EnhancedFileUploadModal({
     if (currentActive < maxConcurrent) {
       const nextFile = uploadQueue.find(f => f.status === 'queued');
       if (nextFile) {
-        setActiveUploads(prev => new Set([...prev, nextFile.id]));
+        setActiveUploads(prev => new Set([...Array.from(prev), nextFile.id]));
         setFiles(prev => prev.map(f => 
           f.id === nextFile.id ? { ...f, status: 'uploading' } : f
         ));
@@ -426,9 +426,9 @@ export default function EnhancedFileUploadModal({
   };
 
   const getFileTypeCategory = (mimeType: string): keyof typeof fileTypeConfigs => {
-    for (const [category, config] of Object.entries(fileTypeConfigs)) {
+    for (const [category, config] of Object.entries(fileTypeConfigs) as [keyof typeof fileTypeConfigs, any][]) {
       if (config.types.includes(mimeType)) {
-        return category as keyof typeof fileTypeConfigs;
+        return category;
       }
     }
     return 'other';
@@ -482,17 +482,17 @@ export default function EnhancedFileUploadModal({
         status: validation.isValid ? 'queued' : 'error',
         error: validation.error,
         uploadMode,
-        projectId: formData.projectId,
-        teamId: formData.teamId,
-        folderId: formData.folderId,
+        projectId: formData.projectId || undefined,
+        teamId: formData.teamId || undefined,
+        folderId: formData.folderId || undefined,
         tags: formData.tags,
-        description: formData.description,
+        description: formData.description || '',
         isPublic: formData.isPublic,
         generateThumbnail: formData.generateThumbnail,
         extractMetadata: formData.extractMetadata,
         virusScan: formData.virusScan,
         priority: formData.priority,
-        expiresAt: formData.expiresAt,
+        expiresAt: formData.expiresAt || undefined,
       };
       
       // Extract metadata for preview

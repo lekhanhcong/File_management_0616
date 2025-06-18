@@ -71,7 +71,6 @@ import {
   Check,
   Loader2,
   Star,
-  Template,
   Sparkles,
   Zap,
   Tag,
@@ -748,7 +747,7 @@ export default function CreateItemModal({
                       {selectedTemplate && (
                         <div className="border-t pt-4">
                           <div className="flex items-center space-x-3">
-                            <Template className="w-5 h-5 text-primary" />
+                            <Sparkles className="w-5 h-5 text-primary" />
                             <div>
                               <span className="font-medium">Template: {selectedTemplate.name}</span>
                               {selectedTemplate.isPremium && (

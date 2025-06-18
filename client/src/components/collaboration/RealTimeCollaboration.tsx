@@ -43,7 +43,6 @@ import {
   Pin,
   PinOff,
   Circle,
-  Cursor,
   Mouse,
   Activity,
   Zap,
@@ -539,7 +538,7 @@ export default function RealTimeCollaboration({ fileId, className }: RealTimeCol
                     className="flex items-center space-x-2 px-2 py-1 rounded-full text-xs"
                     style={{ backgroundColor: cursor.color + '20', color: cursor.color }}
                   >
-                    <Cursor className="w-3 h-3" />
+                    <Mouse className="w-3 h-3" />
                     <span>{cursor.user.firstName}</span>
                     <span className="text-gray-500">
                       Line {cursor.position.line}, Col {cursor.position.column}
@@ -579,7 +578,7 @@ export default function RealTimeCollaboration({ fileId, className }: RealTimeCol
             <div className="space-y-3">
               <div className="flex items-start space-x-3">
                 <Avatar className="w-8 h-8">
-                  <AvatarImage src={user?.avatar} />
+                  <AvatarImage src={user?.avatarUrl || ''} />
                   <AvatarFallback className="text-xs">
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
                   </AvatarFallback>

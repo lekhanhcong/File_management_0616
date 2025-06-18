@@ -354,7 +354,7 @@ export function ProgressiveImage({
   }, [src, lowQualitySrc, isHighQualityLoaded]);
 
   return (
-    <OptimizedImage
+    <img
       {...props}
       src={currentSrc}
       className={cn(
