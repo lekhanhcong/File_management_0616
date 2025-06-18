@@ -476,12 +476,7 @@ export const insertActivitySchema = createInsertSchema(activities).omit({
   createdAt: true,
 });
 
-export type InsertTeam = z.infer<typeof insertTeamSchema>;
-export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
-export type InsertTeamInvitation = z.infer<typeof insertTeamInvitationSchema>;
-export type InsertCollaborationSession = z.infer<typeof insertCollaborationSessionSchema>;
-export type InsertFileComment = z.infer<typeof insertFileCommentSchema>;
-export type InsertActivity = z.infer<typeof insertActivitySchema>;
+// Note: Insert types are defined below using $inferInsert
 
 // Type definitions for complex fields
 export interface UserPreferences {

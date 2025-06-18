@@ -6,6 +6,7 @@ interface User {
   lastName: string;
   email: string;
   profileImageUrl?: string;
+  role?: string;
 }
 
 export function useAuth() {

@@ -406,7 +406,11 @@ export default function AdvancedSearch({
 
   // Handle load saved search
   const loadSavedSearch = useCallback((savedSearch: SavedSearch) => {
-    setFilters({ ...savedSearch.filters, query: savedSearch.query });
+    setFilters({ 
+      ...savedSearch.filters, 
+      query: savedSearch.query,
+      fileTypes: savedSearch.filters.fileTypes || []
+    });
     handleSearch(savedSearch.query);
   }, [handleSearch]);
 

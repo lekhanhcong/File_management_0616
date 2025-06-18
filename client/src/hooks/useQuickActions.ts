@@ -187,8 +187,8 @@ export const useQuickActions = () => {
     searchProjects: () => navigate('/search?type=projects'),
 
     // View actions
-    toggleSidebar: () => window.dispatchEvent(new CustomEvent('toggle-sidebar')),
-    toggleTheme: () => window.dispatchEvent(new CustomEvent('toggle-theme')),
+    toggleSidebar: () => { window.dispatchEvent(new CustomEvent('toggle-sidebar')); },
+    toggleTheme: () => { window.dispatchEvent(new CustomEvent('toggle-theme')); },
     toggleFullscreen: () => {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen();

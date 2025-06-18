@@ -56,8 +56,8 @@ import {
   Gauge,
   Archive,
   FileText,
-  Cache,
-  Optimize,
+  Database,
+  Zap,
   Shield,
   Timer,
   Target,
@@ -520,7 +520,7 @@ export default function LocalStorageDashboard({ className }: LocalStorageDashboa
                   onClick={handleOptimize}
                   disabled={isOptimizing}
                 >
-                  <Optimize className="w-4 h-4 mr-2" />
+                  <Zap className="w-4 h-4 mr-2" />
                   Optimize Cache
                 </Button>
               </CardContent>

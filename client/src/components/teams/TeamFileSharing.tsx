@@ -273,7 +273,7 @@ export default function TeamFileSharing({ teamId, className }: TeamFileSharingPr
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/teams/${teamId}/files`] });
-      setSelectedFiles(prev => prev.filter(id => !prev.includes(fileId)));
+      setSelectedFiles(prev => prev.filter(id => id !== fileId));
     },
   });
 

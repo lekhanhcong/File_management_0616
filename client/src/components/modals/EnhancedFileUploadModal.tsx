@@ -261,12 +261,14 @@ export default function EnhancedFileUploadModal({
       projectId: projectId,
       teamId: teamId,
       folderId: folderId,
-      tags: [],
+      tags: [] as string[],
+      description: '',
       isPublic: false,
       generateThumbnail: true,
       extractMetadata: true,
       virusScan: true,
       priority: 'normal' as const,
+      expiresAt: undefined as Date | undefined,
     },
   });
 
@@ -497,7 +499,7 @@ export default function EnhancedFileUploadModal({
       
       // Extract metadata for preview
       if (file.type.startsWith('image/')) {
-        const img = new Image();
+        const img = new (globalThis as any).Image();
         img.onload = () => {
           setFiles(prev => prev.map(f => 
             f.id === fileId 
