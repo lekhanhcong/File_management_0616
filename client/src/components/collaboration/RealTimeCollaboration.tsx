@@ -33,6 +33,7 @@ import {
   Send,
   Edit,
   Eye,
+  EyeOff,
   MoreHorizontal,
   Clock,
   Reply,
@@ -58,6 +59,12 @@ import {
   Plus,
   Minus,
   X,
+  Check,
+  Tag,
+  ThumbsUp,
+  Smile,
+  Frown,
+  User,
 } from 'lucide-react';
 
 interface RealTimeCollaborationProps {
@@ -258,7 +265,7 @@ export default function RealTimeCollaboration({ fileId, className }: RealTimeCol
     if (!lastMessage) return;
 
     try {
-      const message = JSON.parse(lastMessage);
+      const message = JSON.parse(lastMessage.data);
       
       switch (message.type) {
         case 'collaboration_user_joined':

@@ -74,6 +74,8 @@ import {
   Template,
   Sparkles,
   Zap,
+  Tag,
+  User,
 } from 'lucide-react';
 
 // Types and schemas
@@ -658,7 +660,7 @@ export default function CreateItemModal({
                           </div>
                           {form.watch('tags')?.length > 0 && (
                             <div className="flex flex-wrap gap-2">
-                              {form.watch('tags').map((tag: string) => (
+                              {(form.watch('tags') || []).map((tag: string) => (
                                 <Badge key={tag} variant="secondary" className="flex items-center space-x-1">
                                   <span>{tag}</span>
                                   <button

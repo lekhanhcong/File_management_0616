@@ -1061,7 +1061,7 @@ export default function EnhancedFileUploadModal({
                     </div>
                     {form.watch('tags')?.length > 0 && (
                       <div className="flex flex-wrap gap-2">
-                        {form.watch('tags').map((tag: string) => (
+                        {(form.watch('tags') || []).map((tag: string) => (
                           <Badge key={tag} variant="secondary" className="flex items-center space-x-1">
                             <Tag className="w-3 h-3" />
                             <span>{tag}</span>
