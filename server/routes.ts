@@ -9,6 +9,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { insertProjectSchema, insertFileSchema, insertAuditLogSchema } from "../shared/validation";
 import { z } from "zod";
+import { registerStorageRoutes } from "./routes/storage";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -59,6 +60,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Auth middleware
   await setupAuth(app);
+
+  // Register storage management routes
+  registerStorageRoutes(app);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {

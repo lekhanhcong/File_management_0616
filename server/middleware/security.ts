@@ -7,6 +7,10 @@ import helmet from 'helmet';
 import { fileTypeFromBuffer } from 'file-type';
 import path from 'path';
 import fs from 'fs/promises';
+import crypto from 'crypto';
+import { createHash } from 'crypto';
+import validator from 'validator';
+import DOMPurify from 'isomorphic-dompurify';
 
 // Security headers middleware
 export const securityHeaders = helmet({
@@ -223,12 +227,300 @@ export const csrfProtection = (req: Request, res: Response, next: NextFunction) 
   next();
 };
 
+// Advanced threat detection middleware
+export const threatDetection = (req: Request, res: Response, next: NextFunction) => {
+  const suspiciousPatterns = [
+    /union.*select/gi,
+    /script.*alert/gi,
+    /<iframe/gi,
+    /eval\(/gi,
+    /document\.write/gi,
+    /window\.location/gi,
+    /\bor\s+1=1/gi,
+    /drop\s+table/gi,
+  ];
+
+  const requestString = JSON.stringify({
+    body: req.body,
+    query: req.query,
+    params: req.params,
+    headers: req.headers,
+  });
+
+  for (const pattern of suspiciousPatterns) {
+    if (pattern.test(requestString)) {
+      console.warn(`Suspicious request detected from ${req.ip}:`, {
+        pattern: pattern.source,
+        url: req.url,
+        userAgent: req.headers['user-agent'],
+      });
+      
+      return res.status(400).json({
+        message: 'Request contains potentially malicious content',
+        code: 'THREAT_DETECTED',
+      });
+    }
+  }
+
+  next();
+};
+
+// IP whitelist/blacklist middleware
+const blacklistedIPs = new Set<string>();
+const whitelistedIPs = new Set<string>();
+
+export const ipFiltering = (req: Request, res: Response, next: NextFunction) => {
+  const clientIP = req.ip || req.connection.remoteAddress || '';
+  
+  if (blacklistedIPs.has(clientIP)) {
+    return res.status(403).json({
+      message: 'Access denied',
+      code: 'IP_BLACKLISTED',
+    });
+  }
+
+  // If whitelist is not empty and IP is not whitelisted
+  if (whitelistedIPs.size > 0 && !whitelistedIPs.has(clientIP)) {
+    return res.status(403).json({
+      message: 'Access denied',
+      code: 'IP_NOT_WHITELISTED',
+    });
+  }
+
+  next();
+};
+
+// Request integrity validation
+export const requestIntegrity = (req: Request, res: Response, next: NextFunction) => {
+  // Validate request size
+  const contentLength = parseInt(req.headers['content-length'] || '0');
+  const maxRequestSize = 100 * 1024 * 1024; // 100MB
+  
+  if (contentLength > maxRequestSize) {
+    return res.status(413).json({
+      message: 'Request too large',
+      maxSize: maxRequestSize,
+    });
+  }
+
+  // Validate content type for POST/PUT requests
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    const contentType = req.headers['content-type'] || '';
+    const allowedTypes = [
+      'application/json',
+      'multipart/form-data',
+      'application/x-www-form-urlencoded',
+      'text/plain',
+    ];
+    
+    const isAllowed = allowedTypes.some(type => contentType.includes(type));
+    if (!isAllowed) {
+      return res.status(400).json({
+        message: 'Unsupported content type',
+        allowed: allowedTypes,
+      });
+    }
+  }
+
+  next();
+};
+
+// Enhanced input validation
+export const advancedInputValidation = (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Validate email fields
+    if (req.body?.email && !validator.isEmail(req.body.email)) {
+      return res.status(400).json({
+        message: 'Invalid email format',
+        field: 'email',
+      });
+    }
+
+    // Validate URL fields
+    const urlFields = ['website', 'callback_url', 'redirect_uri'];
+    for (const field of urlFields) {
+      if (req.body?.[field] && !validator.isURL(req.body[field], {
+        protocols: ['http', 'https'],
+        require_protocol: true,
+      })) {
+        return res.status(400).json({
+          message: `Invalid URL format for ${field}`,
+          field,
+        });
+      }
+    }
+
+    // Validate numeric fields
+    const numericFields = ['page', 'limit', 'offset', 'size'];
+    for (const field of numericFields) {
+      if (req.body?.[field] !== undefined && !validator.isNumeric(req.body[field].toString())) {
+        return res.status(400).json({
+          message: `Invalid numeric value for ${field}`,
+          field,
+        });
+      }
+    }
+
+    // Validate boolean fields
+    const booleanFields = ['public', 'shared', 'encrypted', 'active'];
+    for (const field of booleanFields) {
+      if (req.body?.[field] !== undefined && !validator.isBoolean(req.body[field].toString())) {
+        return res.status(400).json({
+          message: `Invalid boolean value for ${field}`,
+          field,
+        });
+      }
+    }
+
+    next();
+  } catch (error) {
+    console.error('Advanced input validation error:', error);
+    res.status(400).json({ message: 'Input validation failed' });
+  }
+};
+
+// File content scanning
+export const scanFileContent = async (req: any, res: Response, next: NextFunction) => {
+  try {
+    const file = req.file;
+    if (!file) {
+      return next();
+    }
+
+    const fileBuffer = await fs.readFile(file.path);
+    
+    // Check for embedded malicious content
+    const maliciousPatterns = [
+      /<script/gi,
+      /javascript:/gi,
+      /vbscript:/gi,
+      /onload=/gi,
+      /onerror=/gi,
+      /eval\(/gi,
+    ];
+
+    const fileContent = fileBuffer.toString('utf8', 0, Math.min(fileBuffer.length, 10000));
+    
+    for (const pattern of maliciousPatterns) {
+      if (pattern.test(fileContent)) {
+        await fs.unlink(file.path); // Delete the malicious file
+        return res.status(400).json({
+          message: 'File contains potentially malicious content',
+          code: 'MALICIOUS_FILE_DETECTED',
+        });
+      }
+    }
+
+    // Calculate file hash for integrity checking
+    const fileHash = createHash('sha256').update(fileBuffer).digest('hex');
+    file.hash = fileHash;
+
+    next();
+  } catch (error) {
+    console.error('File content scanning error:', error);
+    res.status(500).json({ message: 'File scanning failed' });
+  }
+};
+
+// Session security middleware
+export const sessionSecurity = (req: any, res: Response, next: NextFunction) => {
+  // Regenerate session ID periodically
+  const session = req.session;
+  if (session) {
+    const now = Date.now();
+    const sessionAge = now - (session.createdAt || now);
+    const maxAge = 30 * 60 * 1000; // 30 minutes
+    
+    if (sessionAge > maxAge) {
+      session.regenerate((err: any) => {
+        if (err) {
+          console.error('Session regeneration error:', err);
+        }
+        session.createdAt = now;
+        next();
+      });
+    } else {
+      next();
+    }
+  } else {
+    next();
+  }
+};
+
+// API key validation middleware
+export const validateApiKey = (req: Request, res: Response, next: NextFunction) => {
+  const apiKey = req.headers['x-api-key'] as string;
+  
+  if (!apiKey) {
+    return res.status(401).json({
+      message: 'API key required',
+      code: 'API_KEY_MISSING',
+    });
+  }
+
+  // Validate API key format
+  if (!/^[a-zA-Z0-9]{32,64}$/.test(apiKey)) {
+    return res.status(401).json({
+      message: 'Invalid API key format',
+      code: 'INVALID_API_KEY_FORMAT',
+    });
+  }
+
+  // TODO: Verify API key against database
+  // This should be implemented with proper key management
+  
+  next();
+};
+
 // Generate CSRF token
 export const generateCSRFToken = (req: any, res: Response, next: NextFunction) => {
   if (!req.session?.csrfToken) {
-    (req.session as any).csrfToken = require('crypto').randomBytes(32).toString('hex');
+    (req.session as any).csrfToken = crypto.randomBytes(32).toString('hex');
   }
   next();
+};
+
+// Security audit logging
+export const securityAuditLog = (req: Request, res: Response, next: NextFunction) => {
+  const securityEvents = [
+    'POST /api/auth/login',
+    'POST /api/auth/register',
+    'DELETE /api/auth/logout',
+    'POST /api/files/upload',
+    'DELETE /api/files/',
+    'PUT /api/users/',
+    'POST /api/teams/',
+  ];
+
+  const requestPath = `${req.method} ${req.path}`;
+  const shouldLog = securityEvents.some(event => requestPath.includes(event));
+
+  if (shouldLog) {
+    const auditEntry = {
+      timestamp: new Date().toISOString(),
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      method: req.method,
+      path: req.path,
+      userId: (req as any).user?.claims?.sub,
+      sessionId: (req as any).sessionID,
+    };
+
+    // TODO: Send to audit logging service
+    console.log('Security Audit:', auditEntry);
+  }
+
+  next();
+};
+
+// Utility functions for security management
+export const securityUtils = {
+  addToBlacklist: (ip: string) => blacklistedIPs.add(ip),
+  removeFromBlacklist: (ip: string) => blacklistedIPs.delete(ip),
+  addToWhitelist: (ip: string) => whitelistedIPs.add(ip),
+  removeFromWhitelist: (ip: string) => whitelistedIPs.delete(ip),
+  getBlacklist: () => Array.from(blacklistedIPs),
+  getWhitelist: () => Array.from(whitelistedIPs),
 };
 
 export default {
@@ -241,4 +533,13 @@ export default {
   requireFileOwnership,
   csrfProtection,
   generateCSRFToken,
+  threatDetection,
+  ipFiltering,
+  requestIntegrity,
+  advancedInputValidation,
+  scanFileContent,
+  sessionSecurity,
+  validateApiKey,
+  securityAuditLog,
+  securityUtils,
 };

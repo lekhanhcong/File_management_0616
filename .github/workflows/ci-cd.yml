@@ -1,0 +1,404 @@
+name: FileFlowMaster CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  NODE_VERSION: '18'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Code Quality and Security Checks
+  quality-checks:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Lint code
+      run: npm run lint
+    
+    - name: Type check
+      run: npm run type-check
+    
+    - name: Format check
+      run: npm run format:check
+    
+    - name: Security audit
+      run: npm audit --audit-level=high
+    
+    - name: License check
+      run: npm run license-check
+    
+    - name: Bundle analysis
+      run: npm run build:analyze
+    
+    - name: Upload bundle analysis
+      uses: actions/upload-artifact@v4
+      with:
+        name: bundle-analysis
+        path: dist/bundle-analysis.json
+
+  # Unit and Integration Tests
+  test-unit:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [16, 18, 20]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run unit tests
+      run: npm run test:unit
+    
+    - name: Run integration tests
+      run: npm run test:integration
+    
+    - name: Generate coverage report
+      run: npm run test:coverage
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+        fail_ci_if_error: true
+
+  # End-to-End Tests
+  test-e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fileflowmaster_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+    
+    - name: Build application
+      run: npm run build
+      env:
+        NODE_ENV: test
+    
+    - name: Run database migrations
+      run: npm run db:migrate
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fileflowmaster_test
+    
+    - name: Start application
+      run: npm run start:test &
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fileflowmaster_test
+    
+    - name: Wait for application
+      run: npx wait-on http://localhost:3000 --timeout 60000
+    
+    - name: Run E2E tests
+      run: npm run test:e2e
+      env:
+        NODE_ENV: test
+    
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: e2e-test-results
+        path: |
+          test-results/
+          playwright-report/
+
+  # Performance Tests
+  test-performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [quality-checks, test-unit]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build application
+      run: npm run build
+    
+    - name: Run performance tests
+      run: npm run test:performance
+    
+    - name: Upload performance results
+      uses: actions/upload-artifact@v4
+      with:
+        name: performance-results
+        path: performance-results.json
+
+  # Security Scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        languages: typescript, javascript
+
+  # Build and Push Docker Image
+  build-image:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [quality-checks, test-unit, test-e2e]
+    if: github.event_name != 'pull_request'
+    
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.tags }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+          VCS_REF=${{ github.sha }}
+          VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+
+  # Deploy to Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-image, security-scan]
+    if: github.ref == 'refs/heads/develop'
+    
+    environment:
+      name: staging
+      url: https://staging.fileflowmaster.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Update kubeconfig
+      run: aws eks update-kubeconfig --region us-east-1 --name fileflowmaster-staging
+    
+    - name: Deploy to staging
+      run: |
+        envsubst < k8s/staging/deployment.yaml | kubectl apply -f -
+        kubectl rollout status deployment/fileflowmaster-staging
+      env:
+        IMAGE_TAG: ${{ needs.build-image.outputs.image-tag }}
+        DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+        ENCRYPTION_MASTER_KEY: ${{ secrets.STAGING_ENCRYPTION_KEY }}
+    
+    - name: Run smoke tests
+      run: npm run test:smoke -- --environment=staging
+      env:
+        STAGING_URL: https://staging.fileflowmaster.com
+
+  # Deploy to Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-image, security-scan, test-performance]
+    if: github.event_name == 'release'
+    
+    environment:
+      name: production
+      url: https://fileflowmaster.com
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+    
+    - name: Update kubeconfig
+      run: aws eks update-kubeconfig --region us-east-1 --name fileflowmaster-production
+    
+    - name: Create backup
+      run: |
+        kubectl create job backup-$(date +%s) --from=cronjob/database-backup
+        kubectl wait --for=condition=complete job/backup-$(date +%s) --timeout=300s
+    
+    - name: Deploy to production
+      run: |
+        envsubst < k8s/production/deployment.yaml | kubectl apply -f -
+        kubectl rollout status deployment/fileflowmaster-production --timeout=600s
+      env:
+        IMAGE_TAG: ${{ needs.build-image.outputs.image-tag }}
+        DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+        JWT_SECRET: ${{ secrets.PRODUCTION_JWT_SECRET }}
+        ENCRYPTION_MASTER_KEY: ${{ secrets.PRODUCTION_ENCRYPTION_KEY }}
+    
+    - name: Run production smoke tests
+      run: npm run test:smoke -- --environment=production
+      env:
+        PRODUCTION_URL: https://fileflowmaster.com
+    
+    - name: Notify deployment
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        text: 'FileFlowMaster ${{ github.event.release.tag_name }} deployed to production!'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Cleanup
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+    - name: Clean old images
+      run: |
+        # Keep only last 10 images
+        docker images --format "table {{.Repository}}:{{.Tag}}\t{{.CreatedAt}}" | \
+        grep fileflowmaster | \
+        tail -n +11 | \
+        awk '{print $1}' | \
+        xargs -r docker rmi || true
+    
+    - name: Clean workspace
+      run: |
+        rm -rf node_modules
+        rm -rf dist
+        rm -rf .next
