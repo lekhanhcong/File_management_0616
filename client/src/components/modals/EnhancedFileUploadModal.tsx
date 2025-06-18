@@ -585,15 +585,15 @@ export default function EnhancedFileUploadModal({
   };
 
   const addTag = () => {
-    if (currentTag && !form.getValues('tags').includes(currentTag)) {
-      const tags = [...form.getValues('tags'), currentTag];
+    if (currentTag && !(form.getValues('tags') || []).includes(currentTag)) {
+      const tags = [...(form.getValues('tags') || []), currentTag];
       form.setValue('tags', tags);
       setCurrentTag('');
     }
   };
 
   const removeTag = (tagToRemove: string) => {
-    const tags = form.getValues('tags').filter(tag => tag !== tagToRemove);
+    const tags = (form.getValues('tags') || []).filter(tag => tag !== tagToRemove);
     form.setValue('tags', tags);
   };
 
@@ -837,15 +837,24 @@ export default function EnhancedFileUploadModal({
                       <h3 className="text-sm font-medium mb-2">Quick Settings</h3>
                       <div className="space-y-2">
                         <label className="flex items-center space-x-2">
-                          <Checkbox {...form.register('generateThumbnail')} />
+                          <Checkbox 
+                            checked={form.watch('generateThumbnail')} 
+                            onCheckedChange={(checked) => form.setValue('generateThumbnail', checked as boolean)}
+                          />
                           <span className="text-sm">Generate thumbnails</span>
                         </label>
                         <label className="flex items-center space-x-2">
-                          <Checkbox {...form.register('extractMetadata')} />
+                          <Checkbox 
+                            checked={form.watch('extractMetadata')} 
+                            onCheckedChange={(checked) => form.setValue('extractMetadata', checked as boolean)}
+                          />
                           <span className="text-sm">Extract metadata</span>
                         </label>
                         <label className="flex items-center space-x-2">
-                          <Checkbox {...form.register('virusScan')} />
+                          <Checkbox 
+                            checked={form.watch('virusScan')} 
+                            onCheckedChange={(checked) => form.setValue('virusScan', checked as boolean)}
+                          />
                           <span className="text-sm">Virus scan</span>
                         </label>
                       </div>
@@ -1034,7 +1043,8 @@ export default function EnhancedFileUploadModal({
                   <div>
                     <Label htmlFor="description">Description (Optional)</Label>
                     <Textarea
-                      {...form.register('description')}
+                      value={form.watch('description') || ''}
+                      onChange={(e) => form.setValue('description', e.target.value)}
                       placeholder="Add a description for all files"
                       rows={3}
                     />
@@ -1112,15 +1122,24 @@ export default function EnhancedFileUploadModal({
                     <Label>Processing Options</Label>
                     <div className="space-y-2">
                       <label className="flex items-center space-x-2">
-                        <Checkbox {...form.register('generateThumbnail')} />
+                        <Checkbox 
+                          checked={form.watch('generateThumbnail')} 
+                          onCheckedChange={(checked) => form.setValue('generateThumbnail', checked as boolean)}
+                        />
                         <span className="text-sm">Generate thumbnails</span>
                       </label>
                       <label className="flex items-center space-x-2">
-                        <Checkbox {...form.register('extractMetadata')} />
+                        <Checkbox 
+                          checked={form.watch('extractMetadata')} 
+                          onCheckedChange={(checked) => form.setValue('extractMetadata', checked as boolean)}
+                        />
                         <span className="text-sm">Extract metadata</span>
                       </label>
                       <label className="flex items-center space-x-2">
-                        <Checkbox {...form.register('virusScan')} />
+                        <Checkbox 
+                          checked={form.watch('virusScan')} 
+                          onCheckedChange={(checked) => form.setValue('virusScan', checked as boolean)}
+                        />
                         <span className="text-sm">Virus scan</span>
                       </label>
                     </div>

@@ -578,7 +578,7 @@ export default function RealTimeCollaboration({ fileId, className }: RealTimeCol
             <div className="space-y-3">
               <div className="flex items-start space-x-3">
                 <Avatar className="w-8 h-8">
-                  <AvatarImage src={user?.avatarUrl || ''} />
+                  <AvatarImage src={user?.profileImageUrl || ''} />
                   <AvatarFallback className="text-xs">
                     {user?.firstName?.[0]}{user?.lastName?.[0]}
                   </AvatarFallback>

@@ -369,15 +369,15 @@ export default function CreateItemModal({
   };
 
   const addTag = () => {
-    if (currentTag && !form.getValues('tags').includes(currentTag)) {
-      const tags = [...form.getValues('tags'), currentTag];
+    if (currentTag && !(form.getValues('tags') || []).includes(currentTag)) {
+      const tags = [...(form.getValues('tags') || []), currentTag];
       form.setValue('tags', tags);
       setCurrentTag('');
     }
   };
 
   const removeTag = (tagToRemove: string) => {
-    const tags = form.getValues('tags').filter(tag => tag !== tagToRemove);
+    const tags = (form.getValues('tags') || []).filter((tag: string) => tag !== tagToRemove);
     form.setValue('tags', tags);
   };
 
